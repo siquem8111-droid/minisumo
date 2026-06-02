@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Mini Sumo RC</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { background: #111; color: #fff; font-family: sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+  h1 { font-size: 20px; font-weight: 700; letter-spacing: 2px; color: #ff4444; margin-bottom: 6px; }
+  
+  .status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #888; margin-bottom: 20px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #444; }
+  .dot.on { background: #44ff88; box-shadow: 0 0 8px #44ff88; }
+
+  #btn-connect { background: #222; border: 2px solid #ff4444; color: #ff4444; font-size: 15px; font-weight: 700; padding: 12px 28px; border-radius: 12px; cursor: pointer; letter-spacing: 1px; margin-bottom: 24px; width: 100%; max-width: 320px; }
+  #btn-connect.connected { border-color: #44ff88; color: #44ff88; }
+
+  .speed-row { display: flex; align-items: center; gap: 12px; width: 100%; max-width: 320px; margin-bottom: 24px; }
+  .speed-row label { font-size: 13px; color: #888; white-space: nowrap; }
+  input[type=range] { flex: 1; accent-color: #ff4444; height: 6px; }
+  .speed-num { font-size: 18px; font-weight: 700; min-width: 24px; text-align: right; color: #ff4444; }
+
+  .dpad { display: grid; grid-template-columns: repeat(3, 90px); grid-template-rows: repeat(3, 90px); gap: 8px; margin-bottom: 24px; }
+  .btn { width: 90px; height: 90px; border-radius: 16px; border: 2px solid #333; background: #1a1a1a; font-size: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; user-select: none; transition: transform 0.08s, background 0.08s; }
+  .btn:active, .btn.pressed { transform: scale(0.90); background: #2a2a2a; border-color: #ff4444; }
+  .btn-stop { background: #1a1a1a; border-color: #555; font-size: 13px; font-weight: 700; color: #888; letter-spacing: 1px; }
+  .btn-stop:active { background: #330000; border-color: #ff4444; color: #ff4444; }
+  .empty { visibility: hidden; }
+
+  .extras { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 296px; }
+  .extra { padding: 14px 0; border-radius: 14px; border: 2px solid #333; background: #1a1a1a; font-size: 14px; font-weight: 700; color: #ccc; text-align: center; cursor: pointer; letter-spacing: 1px; }
+  .extra:active { background: #222; border-color: #ff4444; }
+  .extra.sumo-on { border-color: #ff4444; color: #ff4444; background: #1a0000; }
+
+  .log { margin-top: 20px; font-size: 12px; color: #555; font-family: monospace; text-align: center; }
+</style>
+</head>
+<body>
+
+<h1>⚔ MINI SUMO RC</h1>
+
+<div class="status">
+  <div class="dot" id="dot"></div>
+  <span id="status-text">Desconectado</span>
+</div>
+
+<button id="btn-connect">CONECTAR BLUETOOTH</button>
+
+<div class="speed-row">
+  <label>VELOCIDAD</label>
+  <input type="range" id="spd" min="0" max="9" value="6" step="1">
+  <span class="speed-num" id="spd-val">6</span>
+</div>
+
+<div class="dpad">
+  <div class="empty"></div>
+  <div class="btn" id="F">▲</div>
+  <div class="empty"></div>
+  <div class="btn" id="L">◀</div>
+  <div class="btn btn-stop" id="S">STOP</div>
+  <div class="btn" id="R">▶</div>
+  <div class="empty"></div>
+  <div class="btn" id="B">▼</div>
+  <div class="empty"></div>
+</div>
+
+<div class="extras">
+  <div class="extra" id="sumo-btn">🥊 SUMO</div>
+  <div class="extra" id="test-btn">🔧 TEST</div>
+</div>
+
+<div class="log" id="log">Abre Chrome y conecta tu MiniSumo-RC</div>
+
+<script>
+let char = null;
+let sumo = false;
+
+const dot = document.getElementById('dot');
+const statusText = document.getElementById('status-text');
+const btnConnect = document.getElementById('btn-connect');
+const log = document.getElementById('log');
+const spdSlider = document.getElementById('spd');
+const spdVal = document.getElementById('spd-val');
+
+function setLog(m) { log.textContent = m; }
+
+spdSlider.addEventListener('input', () => {
+  spdVal.textContent = spdSlider.value;
+  send(spdSlider.value);
+});
+
+btnConnect.addEventListener('click', async () => {
+  if (char) { char = null; dot.classList.remove('on'); statusText.textContent = 'Desconectado'; btnConnect.textContent = 'CONECTAR BLUETOOTH'; btnConnect.classList.remove('connected'); return; }
+  if (!navigator.bluetooth) { setLog('Usa Chrome en Android'); return; }
+  try {
+    setLog('Buscando...');
+    const dev = await navigator.bluetooth.requestDevice({
+      filters: [{ name: 'MiniSumo-RC' }],
+      optionalServices: ['6e400001-b5a3-f393-e0a9-e50e24dcca9e']
+    });
+    dev.addEventListener('gattserverdisconnected', () => {
+      char = null; dot.classList.remove('on');
+      statusText.textContent = 'Desconectado';
+      btnConnect.textContent = 'CONECTAR BLUETOOTH';
+      btnConnect.classList.remove('connected');
+      setLog('Desconectado');
+    });
+    const srv = await dev.gatt.connect();
+    const svc = await srv.getPrimaryService('6e400001-b5a3-f393-e0a9-e50e24dcca9e');
+    char = await svc.getCharacteristic('6e400002-b5a3-f393-e0a9-e50e24dcca9e');
+    dot.classList.add('on');
+    statusText.textContent = dev.name;
+    btnConnect.textContent = 'DESCONECTAR';
+    btnConnect.classList.add('connected');
+    send(spdSlider.value);
+    setLog('¡Listo para pelear!');
+  } catch(e) { setLog('Error: ' + e.message); }
+});
+
+function send(cmd) {
+  if (!char) return;
+  char.writeValueWithoutResponse(new TextEncoder().encode(String(cmd))).catch(e => setLog(e.message));
+}
+
+['F','B','L','R','S'].forEach(id => {
+  const el = document.getElementById(id);
+  const press = () => { el.classList.add('pressed'); send(id); };
+  const release = () => { el.classList.remove('pressed'); if (id !== 'S') send('S'); };
+  el.addEventListener('touchstart', e => { e.preventDefault(); press(); }, { passive: false });
+  el.addEventListener('touchend',   e => { e.preventDefault(); release(); }, { passive: false });
+  el.addEventListener('mousedown', press);
+  el.addEventListener('mouseup', release);
+  el.addEventListener('mouseleave', release);
+});
+
+document.getElementById('sumo-btn').addEventListener('click', () => {
+  sumo = !sumo;
+  document.getElementById('sumo-btn').classList.toggle('sumo-on', sumo);
+  send('X');
+  setLog(sumo ? '🥊 MODO SUMO — MÁXIMA POTENCIA' : 'Modo sumo OFF');
+});
+
+document.getElementById('test-btn').addEventListener('click', async () => {
+  if (!char) { setLog('Conecta primero'); return; }
+  setLog('Probando...');
+  for (const c of ['F','S','B','S','L','S','R','S']) {
+    send(c);
+    await new Promise(r => setTimeout(r, 400));
+  }
+  setLog('Test OK');
+});
+</script>
+</body>
+</html>
